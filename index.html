@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rail Urja Main Display</title>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#061426;color:#eff7ff;font:15px Arial}
+header{padding:22px;background:#0b2340;border-bottom:1px solid #245079}
+h1{margin:0;color:#53dfff}
+main{max-width:1250px;margin:auto;padding:20px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:15px}
+.card{background:#102844;border:1px solid #254b70;border-radius:18px;padding:20px;min-width:0}
+.value{font-size:34px;font-weight:bold;margin:12px 0}
+.small{color:#9db8d7;font-size:13px}
+.status{color:#53dfff}
+button{border:0;border-radius:10px;padding:12px;background:#167cba;color:white;font-weight:bold;cursor:pointer}
+input,textarea{width:100%;padding:12px;background:#061426;color:white;border:1px solid #315777;border-radius:9px;margin:6px 0}
+canvas{width:100%;height:220px;display:block;background:#081a30;border-radius:12px}
+.track{padding:22px;background:linear-gradient(90deg,#12395a,#081a30);border-radius:12px;font-size:34px;text-align:center;overflow:hidden}
+</style>
+</head>
+<body>
+<header>
+<h1>🚆 RAIL URJA</h1>
+<p>Live Railway Energy & Sensor Analytics</p>
+<div id="connection" class="status">● WAITING FOR DATA</div>
+</header>
+<main>
+<div class="grid">
+<div class="card"><h3>⚡ Voltage</h3><div class="value"><span id="voltage">--</span> V</div></div>
+<div class="card"><h3>〽️ Current</h3><div class="value"><span id="current">--</span> A</div></div>
+<div class="card"><h3>🌡️ Temperature</h3><div class="value"><span id="temperature">--</span> °C</div><p id="heat">Heat: waiting</p></div>
+<div class="card"><h3>⚙️ Instant Power</h3><div class="value"><span id="power">--</span> W</div><p class="small">Calculated as voltage × current</p></div>
+<div class="card"><h3>〰️ Vibration</h3><div class="value" id="vibration">--</div></div>
+<div class="card"><h3>🧍 Object Detection</h3><div class="value" id="human">--</div></div>
+<div class="card"><h3>🔔 Alert Centre</h3><div id="alert">No alerts yet</div></div>
+<div class="card"><h3>📡 Hardware Status</h3><div id="hardware">Waiting for controller</div><p class="small">Real hardware needs an ESP32 data bridge.</p></div>
+</div>
+
+<div class="grid" style="margin-top:15px;grid-template-columns:repeat(auto-fit,minmax(300px,1fr))">
+<div class="card">
+<h3>📈 Energy Generation Mountain Graph</h3>
+<canvas id="powerChart" width="600" height="220"></canvas>
+<p class="small">Power trend from received samples</p>
+</div>
+<div class="card">
+<h3>📊 Sensor Analytics</h3>
+<canvas id="sensorChart" width="600" height="220"></canvas>
+<p class="small">Voltage and temperature history</p>
+</div>
+</div>
+
+<div class="card" style="margin-top:15px">
+<h3>🚆 Train Track Activity</h3>
+<div class="track">━━━━━━━━ 🚆 ━━━━━━━━</div>
+<p class="small">Illustrative track visual; not a real train-location feed.</p>
+<div class="grid">
+<div><span class="small">Estimated energy</span><div class="value" style="font-size:24px" id="energy">0.000 Wh</div></div>
+<div><span class="small">Peak power</span><div class="value" style="font-size:24px" id="peak">0 W</div></div>
+<div><span class="small">Last update</span><div class="value" style="font-size:20px" id="updated">--</div></div>
+</div>
+</div>
+
+<div class="card" style="margin-top:15px">
+<h3>⚙️ Connect to Controller</h3>
+<p class="small">Paste the same Firebase config you used in Controller App.</p>
+<textarea id="config" rows="5" placeholder='Paste Firebase config JSON here'></textarea>
+<button onclick="connect()">Connect Firebase</button>
+<p id="message" class="small">Waiting for connection.</p>
+</div>
+</main>
+<script>
+let db=null,points=[],energy=0,peak=0,last=Date.now();
+function connect(){
+ try{
+  const cfg=JSON.parse(document.getElementById("config").value);
+  if(!cfg.apiKey||!cfg.databaseURL)throw Error("Firebase config needs apiKey and databaseURL");
+  if(!firebase.apps.length)firebase.initializeApp(cfg);
+  db=firebase.database();
+  db.ref("railUrja/current").on("value",snap=>{
+   const s=snap.val();if(!s)return;
+   show(s);
+   document.getElementById("connection").textContent="● CONNECTED / LIVE";
+   document.getElementById("message").textContent="Receiving controller updates.";
+   document.getElementById("hardware").textContent="Firebase connected · "+(s.source||"data");
+  },e=>document.getElementById("message").textContent=e.message);
+ }catch(e){document.getElementById("message").textContent="Connection error: "+e.message;}
+}
+function show(s){
+ const v=Number(s.voltage)||0,c=Number(s.current)||0,t=Number(s.temperature)||0,p=v*c;
+ document.getElementById("voltage").textContent=v.toFixed(2);
+ document.getElementById("current").textContent=c.toFixed(2);
+ document.getElementById("temperature").textContent=t.toFixed(1);
+ document.getElementById("power").textContent=p.toFixed(3);
+ document.getElementById("vibration").textContent=s.vibration?"DETECTED":"CLEAR";
+ document.getElementById("human").textContent=s.human?"DETECTED":"CLEAR";
+ document.getElementById("heat").textContent="Heat: "+(t>=45?"HIGH":t>=35?"ELEVATED":"NORMAL");
+ document.getElementById("alert").textContent=s.alert&&s.alert.active?"⚠ "+s.alert.message:"No active alerts";
+ document.getElementById("updated").textContent=new Date(s.updatedAt||Date.now()).toLocaleTimeString();
+ const now=Date.now(),dt=Math.min((now-last)/3600000,.02);energy+=p*Math.max(0,dt);last=now;peak=Math.max(peak,p);
+ document.getElementById("energy").textContent=energy.toFixed(5)+" Wh";
+ document.getElementById("peak").textContent=peak.toFixed(3)+" W";
+ points.push({v,t,p});if(points.length>30)points.shift();
+ draw("powerChart",points.map(x=>x.p),"#48d9f5");
+ draw("sensorChart",points.map(x=>x.v),"#48d9f5",points.map(x=>x.t),"#818cf8");
+}
+function draw(id,a,color,b=null,color2="#818cf8"){
+ const cv=document.getElementById(id),ctx=cv.getContext("2d"),w=cv.width,h=cv.height;
+ ctx.clearRect(0,0,w,h);ctx.strokeStyle="#1d3a56";
+ for(let i=1;i<4;i++){ctx.beginPath();ctx.moveTo(0,h*i/4);ctx.lineTo(w,h*i/4);ctx.stroke();}
+ function line(arr,col){
+  if(!arr.length)return;
+  const max=Math.max(1,...arr)*1.15;
+  const pts=arr.map((n,i)=>({x:arr.length===1?w/2:i*w/(arr.length-1),y:h-15-(n/max)*(h-30)}));
+  ctx.beginPath();ctx.moveTo(pts[0].x,h-15);
+  pts.forEach(q=>ctx.lineTo(q.x,q.y));ctx.lineTo(pts[pts.length-1].x,h-15);ctx.closePath();
+  ctx.globalAlpha=.16;ctx.fillStyle=col;ctx.fill();ctx.globalAlpha=1;
+  ctx.beginPath();pts.forEach((q,i)=>i?ctx.lineTo(q.x,q.y):ctx.moveTo(q.x,q.y));
+  ctx.strokeStyle=col;ctx.lineWidth=3;ctx.stroke();
+ }
+ line(a,color);if(b)line(b,color2);
+}
+</script>
+</body>
+  </html>
